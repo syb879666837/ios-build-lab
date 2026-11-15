@@ -1,0 +1,44 @@
+name: ios-build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  probe:
+    name: 环境探测 + 最小 iOS dylib
+    runs-on: macos-14
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 机器与工具链
+        run: |
+          sw_vers
+          uname -m
+          xcodebuild -version
+          echo "iOS SDK: $(xcrun --sdk iphoneos --show-sdk-version)"
+          echo "iOS SDK path: $(xcrun --sdk iphoneos --show-sdk-path)"
+          xcrun --sdk iphoneos clang --version | head -2
+
+      - name: 编一个最小 arm64 iOS dylib（验证链路）
+        run: |
+          mkdir -p out
+          cat > out/hello.c <<'EOF'
+          int minis_answer(void) { return 42; }
+          EOF
+          xcrun --sdk iphoneos clang -arch arm64 -dynamiclib \
+            -O2 -miphoneos-version-min=16.0 \
+            -install_name @rpath/libhello.dylib \
+            out/hello.c -o out/libhello.dylib
+          file out/libhello.dylib
+          lipo -info out/libhello.dylib
+          xcrun --sdk iphoneos nm -gU out/libhello.dylib | head
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: libhello-arm64
+          path: out/libhello.dylib
+          if-no-files-found: error
