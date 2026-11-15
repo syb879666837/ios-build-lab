@@ -6,39 +6,20 @@ on:
     branches: [main]
 
 jobs:
+  # 先摸清这个账号能用哪个 macOS runner（arm64 配置本账号不支持）
   probe:
-    name: 环境探测 + 最小 iOS dylib
-    runs-on: macos-14
-    timeout-minutes: 20
+    name: 探测 runner ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-13, macos-latest, macos-15]
     steps:
-      - uses: actions/checkout@v4
-
-      - name: 机器与工具链
+      - name: 机器信息
         run: |
           sw_vers
           uname -m
-          xcodebuild -version
-          echo "iOS SDK: $(xcrun --sdk iphoneos --show-sdk-version)"
-          echo "iOS SDK path: $(xcrun --sdk iphoneos --show-sdk-path)"
-          xcrun --sdk iphoneos clang --version | head -2
-
-      - name: 编一个最小 arm64 iOS dylib（验证链路）
-        run: |
-          mkdir -p out
-          cat > out/hello.c <<'EOF'
-          int minis_answer(void) { return 42; }
-          EOF
-          xcrun --sdk iphoneos clang -arch arm64 -dynamiclib \
-            -O2 -miphoneos-version-min=16.0 \
-            -install_name @rpath/libhello.dylib \
-            out/hello.c -o out/libhello.dylib
-          file out/libhello.dylib
-          lipo -info out/libhello.dylib
-          xcrun --sdk iphoneos nm -gU out/libhello.dylib | head
-
-      - name: 上传产物
-        uses: actions/upload-artifact@v4
-        with:
-          name: libhello-arm64
-          path: out/libhello.dylib
-          if-no-files-found: error
+          xcodebuild -version || true
+          xcrun --sdk iphoneos --show-sdk-version || true
