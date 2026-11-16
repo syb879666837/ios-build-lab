@@ -1,0 +1,73 @@
+name: Build OpenJDK Mobile full (iOS device)
+on:
+  workflow_dispatch:
+    inputs:
+      mobile_ref:
+        description: 'openjdk/mobile ref'
+        default: 'master'
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 350
+    steps:
+      - name: Toolchain
+        run: |
+          brew install libffi autoconf make || true
+          sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
+          echo '/opt/homebrew/opt/make/libexec/gnubin' >> $GITHUB_PATH
+          echo '/usr/local/opt/make/libexec/gnubin' >> $GITHUB_PATH
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '26'
+          distribution: 'temurin'
+      - name: Clone ios-tools
+        run: git clone --depth 1 https://github.com/openjdk-mobile/ios-tools.git tools
+      - name: Fetch libffi for iOS
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download libffi-build --repo openjdk-mobile/ios-tools --pattern "libffi-ios.zip"
+          mkdir -p support && unzip -q libffi-ios.zip -d support
+          ls support
+      - name: Clone openjdk mobile
+        env:
+          MOBILE_REF: ${{ inputs.mobile_ref }}
+        run: |
+          git clone --depth 1 --branch "$MOBILE_REF" https://github.com/openjdk/mobile.git mobile || git clone --depth 1 https://github.com/openjdk/mobile.git mobile
+          cp tools/openjdk-ext/src/hotspot/symbol_keeper.cpp mobile/src/hotspot/os/bsd/
+      - name: Configure
+        run: |
+          cd mobile
+          bash configure --with-conf-name=ios-aarch64-zero-release \
+            --disable-warnings-as-errors \
+            --openjdk-target=aarch64-macos-ios \
+            --with-sysroot=/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk \
+            --with-libffi-include=$(realpath ../support/include/ffi) \
+            --with-libffi-lib=$(realpath ../support) \
+            --with-cups-include=$(xcrun --sdk macosx --show-sdk-path)/usr/include
+      - name: Make static libs + modules
+        run: cd mobile && make LOG=cmdlines,info CONF=ios-aarch64-zero-release static-libs-image
+      - name: Combine libdevice.a and pack
+        run: |
+          B=mobile/build/ios-aarch64-zero-release
+          ls $B/jdk/modules | head -40
+          mkdir -p pack
+          cp -R $B/jdk/modules pack/modules
+          cp -R $B/jdk/include pack/include 2>/dev/null || true
+          cp -R $B/jdk/lib pack/lib 2>/dev/null || true
+          find $B/images/static-libs -name '*.a' > als.txt
+          wc -l als.txt
+          xcrun libtool -static -o pack/libdevice.a $(cat als.txt)
+          ls -lh pack/libdevice.a
+          du -sh pack/modules
+          tar czf jdk-full.tgz -C pack .
+          ls -lh jdk-full.tgz
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: jdk-full-device
+          path: |
+            jdk-full.tgz
+            pack/lib/include
+          retention-days: 14
