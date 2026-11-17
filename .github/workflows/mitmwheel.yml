@@ -1,0 +1,62 @@
+name: Build mitmproxy_rs musllinux aarch64 wheel
+
+on:
+  workflow_dispatch:
+    inputs:
+      mmrs_version:
+        description: mitmproxy_rs version
+        required: true
+        default: "0.12.16"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Show toolchain
+        run: |
+          python -V
+          rustc -V
+          cargo -V
+
+      - name: Fetch sdist
+        run: |
+          V="${{ inputs.mmrs_version }}"
+          pip download --no-deps --no-binary :all: -d /tmp/sd "mitmproxy_rs==${V}"
+          cd /tmp/sd && tar xzf mitmproxy_rs-*.tar.gz
+          ls
+
+      - name: Patch workspace default-members
+        run: |
+          SRC=$(ls -d /tmp/sd/mitmproxy_rs-*)
+          cd "$SRC"
+          python3 <<'EOF'
+          import re, pathlib
+          p = pathlib.Path("Cargo.toml")
+          s = p.read_text()
+          s = re.sub(r'default-members = \[[^\]]*\]', 'default-members = [".", "mitmproxy-rs"]', s, count=1)
+          p.write_text(s)
+          print(s[s.index("[workspace]"):s.index("[workspace.package]")])
+          EOF
+
+      - name: Install maturin and zig
+        run: |
+          pip install maturin ziglang
+
+      - name: Build musllinux aarch64 wheel
+        run: |
+          SRC=$(ls -d /tmp/sd/mitmproxy_rs-*)
+          cd "$SRC"
+          maturin build --release --zig --target aarch64-unknown-linux-musl --out /tmp/wheels
+          ls -la /tmp/wheels
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mitmproxy-rs-musl-aarch64
+          path: /tmp/wheels/*.whl
+          retention-days: 7
