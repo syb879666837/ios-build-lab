@@ -1,3 +1,4 @@
+
 name: Build mitmproxy_rs musllinux aarch64 wheel
 
 on:
@@ -28,12 +29,12 @@ jobs:
         run: |
           V="${{ inputs.mmrs_version }}"
           pip download --no-deps --no-binary :all: -d /tmp/sd "mitmproxy_rs==${V}"
-          cd /tmp/sd && tar xzf mitmproxy_rs-*.tar.gz
+          cd /tmp/sd && tarxfz mitmproxy_rs-*.tar.gz
           ls
 
       - name: Patch workspace default-members
         run: |
-          SRC=$(ls -d /tmp/sd/mitmproxy_rs-*)
+          SRC=$(ls -d /tmp/sd/mitmproxy_rs-*/ | head -1)
           cd "$SRC"
           python3 <<'EOF'
           import re, pathlib
@@ -50,7 +51,7 @@ jobs:
 
       - name: Build musllinux aarch64 wheel
         run: |
-          SRC=$(ls -d /tmp/sd/mitmproxy_rs-*)
+          SRC=$(ls -d /tmp/sd/mitmproxy_rs-*/ | head -1)
           cd "$SRC"
           maturin build --release --zig --target aarch64-unknown-linux-musl --out /tmp/wheels
           ls -la /tmp/wheels
